@@ -1,0 +1,89 @@
+# Vendor side. Runs in YOUR infrastructure, never at a customer.
+#
+# Secret (create it yourself, not from a file in git):
+#   kubectl create secret generic license-generator-secrets \
+#     --from-literal=LICENSE_KEYSTORE_PASSWORD='<at least 12 chars>' \
+#     --from-literal=LICENSE_GENERATOR_OPERATORS_0_USERNAME=alice \
+#     --from-literal=LICENSE_GENERATOR_OPERATORS_0_PASSWORD='{bcrypt}<hash>' \
+#     --from-literal=LICENSE_GENERATOR_OPERATORS_0_ADMIN=true \
+#     --from-literal=LICENSE_GENERATOR_OPERATORS_1_USERNAME=bob \
+#     --from-literal=LICENSE_GENERATOR_OPERATORS_1_PASSWORD='{bcrypt}<hash>'
+#   (hash: htpasswd -bnBC 10 "" 'the-password' | tr -d ':\n')
+#   ADMIN=true: may also create/activate signing keys and download key backups.
+#
+# Signing keys are created with the "Create key" button on the service's page (admins only)
+# and stored on this volume under /data/keys, encrypted with LICENSE_KEYSTORE_PASSWORD.
+# Secrets are only base64 in etcd: enable encryption at rest and restrict who can read
+# Secrets in this namespace - whoever has the password and the volume has the key.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: license-generator-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: license-generator
+spec:
+  replicas: 1                 # keys + audit on an RWO volume: exactly one instance
+  strategy:
+    type: Recreate            # never two pods at once
+  selector:
+    matchLabels: {app: license-generator}
+  template:
+    metadata:
+      labels: {app: license-generator}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: app
+          image: registry.example.com/license-generator:1.0.0
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef: {name: license-generator-secrets}
+          env:
+            - {name: LICENSE_KEYS_DIR, value: /data/keys}
+            - {name: LICENSE_AUDIT_DIR, value: /data/audit}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}     # read-only root fs: the web server needs a writable /tmp
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            initialDelaySeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Also a safety net: if the volume mount were missing, writing a key
+            # would fail instead of landing in the container's throw-away filesystem.
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: license-generator-data}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: license-generator
+spec:
+  selector: {app: license-generator}
+  ports:
+    - port: 8080
+      targetPort: 8080
+# Expose to operators only through an ingress with TLS (and ideally VPN / IP allowlist),
+# or use: kubectl port-forward svc/license-generator 8080

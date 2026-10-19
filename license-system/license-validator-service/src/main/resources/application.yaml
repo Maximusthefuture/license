@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: license-validator
+  datasource:
+    # A dedicated database (or schema) for the validator; credentials from a secret.
+    url: ${LICENSE_DB_URL:jdbc:postgresql://localhost:5432/license_validator}
+    username: ${LICENSE_DB_USER:license_validator}
+    password: ${LICENSE_DB_PASSWORD:}
+  sql:
+    init:
+      mode: always
+
+server:
+  port: 8080
+
+license:
+  validator:
+    product-id: ${LICENSE_PRODUCT_ID:}
+    product-version: ${LICENSE_PRODUCT_VERSION:unknown}
+    cluster-id-policy: STRICT
+    cache-ttl: 1m
+    # Keep these equal to the product's settings (DefaultLicenseService defaults: 30d / 14d)
+    # so that the validator and the product report the same status.
+    expiring-warning: 30d
+    grace: 14d
+    # The clock may lag the last known time by this much without a warning.
+    # Either way, validity is counted from the later of the two.
+    clock-tolerance: 1h
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true

@@ -1,0 +1,111 @@
+# Customer side: deployed into the customer's cluster together with the product.
+#
+# Needs a PostgreSQL database (a dedicated database or schema). Secret:
+#   kubectl create secret generic license-validator-db \
+#     --from-literal=LICENSE_DB_URL=jdbc:postgresql://postgres:5432/license_validator \
+#     --from-literal=LICENSE_DB_USER=license_validator \
+#     --from-literal=LICENSE_DB_PASSWORD='...'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: license-validator
+---
+# Read-only access to ONE object: the kube-system namespace, whose UID identifies the cluster.
+# The product's own ServiceAccount needs the same binding, because the product reads the
+# cluster id itself instead of trusting the validator for it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: license-cluster-id-reader
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["kube-system"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: license-cluster-id-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: license-cluster-id-reader
+subjects:
+  - kind: ServiceAccount
+    name: license-validator
+    namespace: default        # <- the namespace you deploy into
+  - kind: ServiceAccount
+    name: acme-suite          # <- the product's ServiceAccount
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: license-validator
+spec:
+  replicas: 1                 # more is fine: state lives in Postgres
+  selector:
+    matchLabels: {app: license-validator}
+  template:
+    metadata:
+      labels: {app: license-validator}
+    spec:
+      serviceAccountName: license-validator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: app
+          image: registry.example.com/license-validator:1.0.0
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef: {name: license-validator-db}
+          env:
+            - {name: LICENSE_PRODUCT_ID, value: acme-suite}
+            - {name: LICENSE_PRODUCT_VERSION, value: "3.2.1"}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8080}
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8080}
+            initialDelaySeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: license-validator
+spec:
+  selector: {app: license-validator}
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Only the product should reach the validator over the network. Administrators open the
+# admin page with:  kubectl port-forward svc/license-validator 8080  ->  http://localhost:8080
+# (port-forward is not subject to this policy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: license-validator
+spec:
+  podSelector:
+    matchLabels: {app: license-validator}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: acme-suite}   # <- the product's pods
+      ports:
+        - port: 8080

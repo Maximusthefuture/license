@@ -1,0 +1,12 @@
+target/
+
+# Signing keys must never be committed - see README, "Signing keys".
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.pem
+*.key
+
+# Issuer audit output (contains customer data and every issued license)
+license-audit/

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лицензия продукта</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1b1d21; --muted: #676c75; --line: #dde0e5;
+    --accent: #2d4f7c; --accent-text: #ffffff;
+    --good-bg: #e4f2ea; --good-text: #1e5a39; --warn-bg: #fff3d6; --warn-text: #6b4c00;
+    --bad-bg: #fde7e4; --bad-text: #8c2214; --none-bg: #eceef1; --none-text: #4a4f57;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a; --panel: #1e2125; --text: #e6e8eb; --muted: #9aa0a8; --line: #31353b;
+      --accent: #8fb1de; --accent-text: #0f1a29;
+      --good-bg: #15301f; --good-text: #a6dbbb; --warn-bg: #3a2f12; --warn-text: #f0d48a;
+      --bad-bg: #3d1a16; --bad-text: #f3b1a8; --none-bg: #2a2e33; --none-text: #c3c8cf;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-top: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  textarea, input { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+                    border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); margin-top: 12px; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .badge { display: inline-block; border-radius: 999px; padding: 2px 12px; font-weight: 600; font-size: 14px; }
+  .good { background: var(--good-bg); color: var(--good-text); }
+  .warn { background: var(--warn-bg); color: var(--warn-text); }
+  .bad { background: var(--bad-bg); color: var(--bad-text); }
+  .none { background: var(--none-bg); color: var(--none-text); }
+  .msg { border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 14px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Лицензия продукта</h1>
+
+  <section>
+    <h2>Текущее состояние</h2>
+    <div><span id="statusBadge" class="badge none">Загрузка…</span></div>
+    <div id="statusDetail" class="msg" hidden></div>
+    <div id="clockWarning" class="msg warn" hidden></div>
+    <dl id="statusDetails"></dl>
+    <button id="refreshBtn" class="secondary">Обновить</button>
+  </section>
+
+  <section>
+    <h2>1. Запросить лицензию</h2>
+    <p class="hint">Сформируйте запрос и отправьте его текст поставщику по почте. В ответ придёт ключ лицензии.</p>
+    <label for="organization">Название организации</label>
+    <input id="organization" autocomplete="organization">
+    <button id="requestBtn">Сформировать запрос</button>
+    <div id="requestError" class="msg bad" hidden></div>
+    <div id="requestBox" hidden>
+      <textarea id="requestText" rows="11" readonly spellcheck="false"></textarea>
+      <button id="copyRequestBtn" class="secondary">Скопировать</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Активировать ключ из ответного письма</h2>
+    <label for="licenseText">Вставьте блок целиком, вместе со строками BEGIN/END LICENSE KEY</label>
+    <textarea id="licenseText" rows="11" spellcheck="false"></textarea>
+    <button id="activateBtn">Активировать</button>
+    <div id="activateResult" class="msg" hidden></div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const day = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '—';
+
+  const STATUS = {
+    VALID:       ['Действует', 'good'],
+    EXPIRING:    ['Скоро истекает', 'warn'],
+    GRACE:       ['Истекла, льготный период', 'warn'],
+    EXPIRED:     ['Истекла', 'bad'],
+    INVALID:     ['Недействительна', 'bad'],
+    NO_LICENSE:  ['Лицензии нет', 'none'],
+    UNAVAILABLE: ['Нет доступа к хранилищу', 'bad'],
+  };
+  const REASONS = {
+    MALFORMED: 'текст ключа повреждён или скопирован не полностью',
+    UNKNOWN_KEY: 'ключ подписан неизвестным ключом поставщика',
+    BAD_SIGNATURE: 'подпись ключа недействительна',
+    WRONG_PRODUCT: 'ключ выдан для другого продукта',
+    WRONG_INSTALLATION: 'ключ выдан для другой установки',
+    WRONG_CLUSTER: 'ключ выдан для другого кластера Kubernetes',
+    CLUSTER_ID_UNAVAILABLE: 'не удаётся прочитать идентификатор кластера (проверьте RBAC)',
+  };
+
+  function row(term, value) {
+    const dt = document.createElement('dt'); dt.textContent = term;
+    const dd = document.createElement('dd'); dd.textContent = value ?? '—';
+    return [dt, dd];
+  }
+  function message(el, text, kind) {
+    el.textContent = text; el.className = 'msg ' + kind; el.hidden = false;
+  }
+
+  async function loadStatus() {
+    try {
+      const response = await fetch('/api/v1/license/status', { headers: { 'Accept': 'application/json' } });
+      if (!response.ok) throw new Error('Ошибка ' + response.status);
+      const s = await response.json();
+      const [label, kind] = STATUS[s.status] || [s.status, 'none'];
+      $('statusBadge').textContent = label;
+      $('statusBadge').className = 'badge ' + kind;
+      const why = s.reason ? (REASONS[s.reason] || s.reason) : s.detail;
+      if (why) { message($('statusDetail'), why, kind === 'good' ? 'good' : 'warn'); } else { $('statusDetail').hidden = true; }
+      if (s.clockWarning) {
+        message($('clockWarning'), 'Системные часы отстают от последнего известного времени: похоже, их перевели назад. '
+          + 'Срок лицензии считается от более позднего времени, поэтому перевод часов её не продлевает. '
+          + 'Проверьте синхронизацию времени (NTP) на узлах кластера.', 'warn');
+        $('clockWarning').title = s.clockWarning;
+      } else {
+        $('clockWarning').hidden = true;
+      }
+      const rows = [];
+      if (s.license) {
+        rows.push(...row('Клиент', s.license.customer),
+                  ...row('Модули', s.license.modules.join(', ')),
+                  ...row('Пользователей', s.license.maxUsers),
+                  ...row('Действует', day(s.license.notBefore) + ' — ' + day(s.license.notAfter)),
+                  ...row('Лицензия', s.license.licenseId));
+      }
+      rows.push(...row('Продукт', s.productId),
+                ...row('Установка', s.installationId),
+                ...row('Кластер', s.clusterId || 'не определён'));
+      $('statusDetails').replaceChildren(...rows);
+    } catch (e) {
+      $('statusBadge').textContent = 'Не удалось получить статус';
+      $('statusBadge').className = 'badge bad';
+      message($('statusDetail'), e.message, 'bad');
+    }
+  }
+
+  $('refreshBtn').addEventListener('click', loadStatus);
+
+  $('requestBtn').addEventListener('click', async () => {
+    $('requestError').hidden = true; $('requestBox').hidden = true;
+    try {
+      const response = await fetch('/api/v1/license-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/plain, application/json' },
+        body: JSON.stringify({ organization: $('organization').value }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err && err.message ? err.message : 'Ошибка ' + response.status);
+      }
+      $('requestText').value = await response.text();
+      $('requestBox').hidden = false;
+    } catch (e) {
+      message($('requestError'), e.message, 'bad');
+    }
+  });
+
+  $('copyRequestBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('requestText').value);
+      $('copyRequestBtn').textContent = 'Скопировано';
+    } catch {
+      $('requestText').select();
+      $('copyRequestBtn').textContent = 'Выделено, нажмите Ctrl+C';
+    }
+    setTimeout(() => { $('copyRequestBtn').textContent = 'Скопировать'; }, 2000);
+  });
+
+  $('activateBtn').addEventListener('click', async () => {
+    $('activateBtn').disabled = true;
+    try {
+      const response = await fetch('/api/v1/license', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Accept': 'application/json' },
+        body: $('licenseText').value,
+      });
+      const r = await response.json().catch(() => null);
+      if (r && r.accepted) {
+        message($('activateResult'), `Лицензия активирована: «${r.license.customer}», до ${day(r.license.notAfter)}.`, 'good');
+        $('licenseText').value = '';
+      } else if (r) {
+        message($('activateResult'), 'Ключ не принят: ' + (r.reason ? (REASONS[r.reason] || r.reason) : r.message), 'bad');
+      } else {
+        throw new Error('Ошибка ' + response.status);
+      }
+      loadStatus();
+    } catch (e) {
+      message($('activateResult'), e.message, 'bad');
+    } finally {
+      $('activateBtn').disabled = false;
+    }
+  });
+
+  loadStatus();
+</script>
+</body>
+</html>

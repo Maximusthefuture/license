@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: license-generator
+
+server:
+  port: 8080
+  # Behind an ingress that terminates TLS
+  forward-headers-strategy: framework
+
+license:
+  generator:
+    # <kid>.p12 files + the active-key marker; keys are created from the web page (admins)
+    keys-dir: ${LICENSE_KEYS_DIR:/data/keys}
+    keystore-password: ${LICENSE_KEYSTORE_PASSWORD:}
+    audit-dir: ${LICENSE_AUDIT_DIR:/data/audit}
+    # Operators who may issue licenses. Provide from a secret, e.g. as env vars
+    #   LICENSE_GENERATOR_OPERATORS_0_USERNAME=alice
+    #   LICENSE_GENERATOR_OPERATORS_0_PASSWORD={bcrypt}$2a$10$...
+    #   LICENSE_GENERATOR_OPERATORS_0_ADMIN=true      # may also manage signing keys
+    # (generate a hash with: htpasswd -bnBC 10 "" 'the-password' | tr -d ':\n')
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true

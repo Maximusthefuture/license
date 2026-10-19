@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example.licensing</groupId>
+  <artifactId>license-system</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>License System</name>
+  <description>
+    Offline, email-based licensing: a generator service (vendor side) that
+    turns license requests into signed license keys, a validator service
+    (customer's Kubernetes) that creates requests, activates keys and serves
+    them to the product, and plain-Java libraries both are built on - which
+    the product also uses to verify licenses itself.
+  </description>
+
+  <modules>
+    <module>license-common</module>
+    <module>license-client</module>
+    <module>license-issuer</module>
+    <module>license-generator-service</module>
+    <module>license-validator-service</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Spring Boot 3.5 (last 3.x line) left free OSS support on 2026-06-30, hence 4.1.
+         Bump to the latest 4.1.x patch release when building. -->
+    <spring-boot.version>4.1.0</spring-boot.version>
+    <junit.version>5.10.3</junit.version>
+    <assertj.version>3.26.3</assertj.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.example.licensing</groupId>
+        <artifactId>license-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.example.licensing</groupId>
+        <artifactId>license-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.example.licensing</groupId>
+        <artifactId>license-issuer</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.3.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <!-- Spring needs real parameter names (configuration records, MVC arguments) -->
+            <parameters>true</parameters>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

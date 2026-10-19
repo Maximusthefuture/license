@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.licensing</groupId>
+    <artifactId>license-system</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>license-common</artifactId>
+
+  <description>
+    Shared model, text codec and crypto helpers used by both the client
+    (license-client) and the issuer (license-issuer), so the two sides of
+    the wire format cannot silently drift apart. Deliberately has zero
+    external dependencies beyond the JDK - everything, including JSON
+    encoding, is hand-rolled in this module - so the whole project can be
+    built with nothing but a JDK 21 and Maven's own core plugins, and so
+    the signed payload format has no external parsing dependency that
+    could change behavior out from under an already-deployed signature
+    scheme.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

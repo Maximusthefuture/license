@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Генератор лицензий</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #deded9;
+    --accent: #2f5d50; --accent-text: #ffffff; --warn-bg: #fff4d6; --warn-text: #6a4b00;
+    --err-bg: #fde8e6; --err-text: #8a1f11; --ok-bg: #e5f3ec; --ok-text: #1d5a3c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161715; --panel: #1f201e; --text: #e8e8e3; --muted: #9a9a92; --line: #33342f;
+      --accent: #7fb8a4; --accent-text: #10201b; --warn-bg: #3a2f12; --warn-text: #f0d48a;
+      --err-bg: #3d1a16; --err-text: #f3b1a8; --ok-bg: #16301f; --ok-text: #a8dcbc;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .kid { color: var(--muted); font-size: 13px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-top: 16px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  textarea, input { width: 100%; font: inherit; color: var(--text); background: var(--bg);
+                    border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  button { font: inherit; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); margin-top: 12px; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: default; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
+  .msg { border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 14px; }
+  .warn { background: var(--warn-bg); color: var(--warn-text); }
+  .err { background: var(--err-bg); color: var(--err-text); }
+  .ok { background: var(--ok-bg); color: var(--ok-text); }
+  [hidden] { display: none !important; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  a { color: var(--accent); }
+  button.small { margin: 0 6px 0 0; padding: 4px 10px; font-size: 13px; }
+  h3 { font-size: 14px; margin: 20px 0 8px; }
+  p.hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .inline { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+  .inline > div { flex: 1 1 180px; }
+  .inline button { margin-top: 0; }
+  .active-badge { color: var(--ok-text); background: var(--ok-bg); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Генератор лицензий</h1>
+      <div class="kid" id="kid">Ключ подписи: …</div>
+    </div>
+  </header>
+  <div id="noKeyBanner" class="msg err" hidden>
+    Нет активного ключа подписи, выдавать лицензии пока нельзя.
+    Администратор создаёт и активирует ключ в разделе «Ключи подписи» внизу страницы.
+  </div>
+
+  <section>
+    <h2>1. Запрос из письма</h2>
+    <label for="requestText">Вставьте блок целиком, вместе со строками BEGIN/END LICENSE REQUEST</label>
+    <textarea id="requestText" rows="9" spellcheck="false"></textarea>
+    <button id="previewBtn">Разобрать запрос</button>
+    <div id="previewError" class="msg err" hidden></div>
+    <div id="previewBox" hidden>
+      <dl id="previewDetails"></dl>
+      <div id="previouslyIssued" class="msg warn" hidden></div>
+    </div>
+  </section>
+
+  <section id="issueSection" hidden>
+    <h2>2. Что выдать</h2>
+    <div class="grid">
+      <div><label for="customer">Клиент</label><input id="customer"></div>
+      <div><label for="modules">Модули, через запятую</label><input id="modules" placeholder="reports, integration-1c"></div>
+      <div><label for="maxUsers">Макс. пользователей</label><input id="maxUsers" type="number" min="1" value="10"></div>
+      <div><label for="validityDays">Срок, дней</label><input id="validityDays" type="number" min="1" value="365"></div>
+    </div>
+    <button id="issueBtn">Выпустить лицензию</button>
+    <div id="issueError" class="msg err" hidden></div>
+  </section>
+
+  <section id="resultSection" hidden>
+    <h2>3. Лицензия для ответного письма</h2>
+    <div id="resultSummary" class="msg ok"></div>
+    <textarea id="licenseText" rows="12" readonly spellcheck="false"></textarea>
+    <button id="copyBtn" class="secondary">Скопировать</button>
+  </section>
+
+  <section>
+    <h2>Выданные лицензии</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Выдана</th><th>Клиент</th><th>Модули</th><th>Польз.</th><th>До</th><th>Ключ</th><th>Кто выдал</th><th></th></tr></thead>
+        <tbody id="history"><tr><td colspan="8">Загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="keysSection" hidden>
+    <h2>Ключи подписи <span class="kid">(только администраторы)</span></h2>
+    <p class="hint">
+      Новый ключ сначала только создаётся. Подписывать им можно после того, как строка из
+      «Строк для TrustedKeys» попала в сборку, которую клиенты уже установили. Иначе их
+      валидатор отклонит лицензию.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Ключ</th><th>Создан</th><th>Статус</th><th></th></tr></thead>
+        <tbody id="keys"></tbody>
+      </table>
+    </div>
+    <div id="keysMessage" class="msg" hidden></div>
+
+    <h3>Новый ключ на томе</h3>
+    <div class="inline">
+      <div><label for="newKeyId">Имя ключа (kid)</label><input id="newKeyId" placeholder="2026-01" autocomplete="off"></div>
+      <button id="createKeyBtn">Создать ключ</button>
+    </div>
+
+    <h3>Строки для TrustedKeys.java</h3>
+    <textarea id="trustedKeysLines" rows="4" readonly spellcheck="false"></textarea>
+    <button id="copyLinesBtn" class="secondary">Скопировать</button>
+
+    <h3>Запасной ключ</h3>
+    <p class="hint">
+      Файл не сохраняется на сервере, его можно только скачать. Храните его отдельно от основного
+      ключа, с собственным паролем, и добавьте его строку в TrustedKeys вместе с основным.
+    </p>
+    <div class="inline">
+      <div><label for="reserveKeyId">Имя ключа (kid)</label><input id="reserveKeyId" placeholder="2026-01-reserve" autocomplete="off"></div>
+      <div><label for="reservePassword">Пароль файла (от 12 символов)</label><input id="reservePassword" type="password" autocomplete="new-password"></div>
+      <div><label for="reservePassword2">Пароль ещё раз</label><input id="reservePassword2" type="password" autocomplete="new-password"></div>
+      <button id="reserveBtn">Создать и скачать</button>
+    </div>
+    <div id="reserveMessage" class="msg" hidden></div>
+
+    <h3>Журнал действий с ключами</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Когда</th><th>Действие</th><th>Ключ</th><th>Кто</th></tr></thead>
+        <tbody id="keyEvents"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const day = (iso) => iso ? new Date(iso).toLocaleDateString('ru-RU') : '—';
+
+  async function api(path, options = {}) {
+    const response = await fetch('/api/v1' + path, {
+      ...options,
+      headers: { 'Accept': 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+    });
+    const body = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(body && body.message ? body.message : 'Ошибка ' + response.status);
+      error.status = response.status;
+      throw error;
+    }
+    return body;
+  }
+
+  function show(el, text) { el.textContent = text; el.hidden = false; }
+  function row(term, value) {
+    const dt = document.createElement('dt'); dt.textContent = term;
+    const dd = document.createElement('dd'); dd.textContent = value ?? '—';
+    return [dt, dd];
+  }
+
+  async function loadKey() {
+    try {
+      const key = await api('/signing-key');
+      $('kid').textContent = 'Ключ подписи: ' + key.keyId;
+      $('noKeyBanner').hidden = true;
+    } catch (e) {
+      if (e.status === 409) {
+        $('kid').textContent = 'Ключ подписи: нет активного ключа';
+        $('noKeyBanner').hidden = false;
+      } else {
+        $('kid').textContent = 'Ключ подписи: не удалось загрузить (' + e.message + ')';
+      }
+    }
+  }
+
+  // ---- signing keys (admins only; the section stays hidden for everyone else) ----
+
+  function keyMessage(el, text, kind) { el.textContent = text; el.className = 'msg ' + kind; el.hidden = false; }
+
+  async function loadKeys() {
+    let data;
+    try {
+      data = await api('/keys');
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) { $('keysSection').hidden = true; return; }
+      $('keysSection').hidden = false;
+      keyMessage($('keysMessage'), 'Не удалось загрузить ключи: ' + e.message, 'err');
+      return;
+    }
+    $('keysSection').hidden = false;
+
+    const tbody = $('keys');
+    tbody.replaceChildren();
+    if (data.keys.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td'); td.colSpan = 4; td.textContent = 'На томе пока нет ключей';
+      tr.append(td); tbody.append(tr);
+    }
+    for (const k of data.keys) {
+      const tr = document.createElement('tr');
+      const name = document.createElement('td'); name.textContent = k.keyId;
+      const created = document.createElement('td'); created.textContent = fmt(k.createdAt);
+      const status = document.createElement('td');
+      if (k.problem) {
+        status.textContent = 'не открывается: ' + k.problem;
+      } else if (k.active) {
+        const badge = document.createElement('span'); badge.className = 'active-badge'; badge.textContent = 'подписывает';
+        status.append(badge);
+      } else {
+        status.textContent = 'не активен';
+      }
+      const actions = document.createElement('td');
+      if (!k.active && !k.problem) {
+        const activate = document.createElement('button');
+        activate.className = 'small'; activate.textContent = 'Сделать активным';
+        activate.addEventListener('click', () => activateKey(k.keyId));
+        actions.append(activate);
+      }
+      const backup = document.createElement('a');
+      backup.href = '/api/v1/keys/' + encodeURIComponent(k.keyId) + '/backup';
+      backup.download = k.keyId + '.p12';
+      backup.textContent = 'скачать копию';
+      actions.append(backup);
+      tr.append(name, created, status, actions);
+      tbody.append(tr);
+    }
+
+    $('trustedKeysLines').value = data.keys.filter(k => k.trustedKeysLine).map(k => k.trustedKeysLine).join('\n');
+
+    const events = $('keyEvents');
+    events.replaceChildren();
+    const ACTIONS = { GENERATE: 'создан', ACTIVATE: 'сделан активным', BACKUP: 'скачана копия', GENERATE_RESERVE: 'создан запасной' };
+    for (const ev of data.events.slice(0, 20)) {
+      const tr = document.createElement('tr');
+      for (const v of [fmt(ev.at), ACTIONS[ev.action] || ev.action, ev.keyId, ev.actor]) {
+        const td = document.createElement('td'); td.textContent = v; tr.append(td);
+      }
+      events.append(tr);
+    }
+  }
+
+  async function activateKey(keyId) {
+    const ok = confirm(`Сделать ключ «${keyId}» активным?\n\n`
+      + 'Все новые лицензии будут подписаны им. Продолжайте, только если его строка уже есть в TrustedKeys '
+      + 'выпущенной сборки и клиенты её установили. Иначе их валидатор отклонит новые лицензии.');
+    if (!ok) return;
+    try {
+      await api('/keys/' + encodeURIComponent(keyId) + '/activate', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+      keyMessage($('keysMessage'), `Ключ «${keyId}» теперь подписывает новые лицензии.`, 'ok');
+    } catch (e) {
+      keyMessage($('keysMessage'), e.message, 'err');
+    }
+    loadKeys(); loadKey();
+  }
+
+  $('createKeyBtn').addEventListener('click', async () => {
+    const keyId = $('newKeyId').value.trim();
+    if (!keyId) { keyMessage($('keysMessage'), 'Укажите имя ключа, например 2026-01', 'err'); return; }
+    if (!confirm(`Создать новый ключ «${keyId}» на томе генератора?\n\nОн не станет активным сам, это отдельный шаг.`)) return;
+    try {
+      await api('/keys', { method: 'POST', body: JSON.stringify({ keyId }) });
+      $('newKeyId').value = '';
+      keyMessage($('keysMessage'), `Ключ «${keyId}» создан, но пока не подписывает. Дальше: скачайте копию в резервное хранилище, `
+        + 'добавьте его строку в TrustedKeys, выпустите сборку и после её установки у клиентов сделайте ключ активным. '
+        + 'Если это самый первый ключ и выданных лицензий ещё нет, его можно сделать активным сразу после сборки.', 'ok');
+    } catch (e) {
+      keyMessage($('keysMessage'), e.message, 'err');
+    }
+    loadKeys();
+  });
+
+  $('copyLinesBtn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('trustedKeysLines').value); $('copyLinesBtn').textContent = 'Скопировано'; }
+    catch { $('trustedKeysLines').select(); $('copyLinesBtn').textContent = 'Выделено, нажмите Ctrl+C'; }
+    setTimeout(() => { $('copyLinesBtn').textContent = 'Скопировать'; }, 2000);
+  });
+
+  $('reserveBtn').addEventListener('click', async () => {
+    const keyId = $('reserveKeyId').value.trim();
+    const password = $('reservePassword').value;
+    if (password !== $('reservePassword2').value) { keyMessage($('reserveMessage'), 'Пароли не совпадают', 'err'); return; }
+    try {
+      const r = await api('/keys/reserve', { method: 'POST', body: JSON.stringify({ keyId, password }) });
+      const bytes = Uint8Array.from(atob(r.keystoreBase64), c => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/x-pkcs12' }));
+      const a = document.createElement('a'); a.href = url; a.download = r.fileName; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      $('reservePassword').value = ''; $('reservePassword2').value = '';
+      keyMessage($('reserveMessage'), `Файл ${r.fileName} скачан, на сервере его нет. Строка для TrustedKeys:\n${r.key.trustedKeysLine}`, 'ok');
+      $('reserveMessage').style.whiteSpace = 'pre-wrap';
+    } catch (e) {
+      keyMessage($('reserveMessage'), e.message, 'err');
+    }
+    loadKeys();
+  });
+
+  async function loadHistory() {
+    const tbody = $('history');
+    try {
+      const items = await api('/licenses?limit=50');
+      tbody.replaceChildren();
+      if (items.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td'); td.colSpan = 8; td.textContent = 'Пока ни одной';
+        tr.append(td); tbody.append(tr); return;
+      }
+      for (const it of items) {
+        const tr = document.createElement('tr');
+        for (const v of [fmt(it.issuedAt), it.customer, it.modules.join(', '), it.maxUsers, day(it.notAfter), it.keyId, it.issuedBy]) {
+          const td = document.createElement('td'); td.textContent = v; tr.append(td);
+        }
+        const td = document.createElement('td');
+        const a = document.createElement('a');
+        a.href = '/api/v1/licenses/' + encodeURIComponent(it.licenseId) + '/text';
+        a.target = '_blank'; a.textContent = 'текст';
+        td.append(a); tr.append(td); tbody.append(tr);
+      }
+    } catch (e) {
+      tbody.replaceChildren();
+      const tr = document.createElement('tr');
+      const td = document.createElement('td'); td.colSpan = 8; td.textContent = 'Не удалось загрузить: ' + e.message;
+      tr.append(td); tbody.append(tr);
+    }
+  }
+
+  $('previewBtn').addEventListener('click', async () => {
+    $('previewError').hidden = true; $('previewBox').hidden = true;
+    $('issueSection').hidden = true; $('resultSection').hidden = true;
+    try {
+      const p = await api('/requests/preview', { method: 'POST', body: JSON.stringify({ requestText: $('requestText').value }) });
+      $('previewDetails').replaceChildren(
+        ...row('Продукт', p.productId + ' ' + (p.productVersion || '')),
+        ...row('Организация', p.organization),
+        ...row('Установка', p.installationId),
+        ...row('Кластер', p.clusterId || 'не указан (лицензия не будет привязана к кластеру)'),
+        ...row('Запрос создан', fmt(p.requestedAt)),
+      );
+      if (p.previouslyIssuedLicenseIds.length > 0) {
+        show($('previouslyIssued'), 'По этому запросу уже выдано лицензий: ' + p.previouslyIssuedLicenseIds.length
+          + '. Если письмо пришло повторно, отправьте существующую лицензию из таблицы ниже.');
+      } else {
+        $('previouslyIssued').hidden = true;
+      }
+      $('customer').value = p.organization || '';
+      $('previewBox').hidden = false;
+      $('issueSection').hidden = false;
+    } catch (e) {
+      show($('previewError'), e.message);
+    }
+  });
+
+  $('issueBtn').addEventListener('click', async () => {
+    $('issueError').hidden = true;
+    const modules = $('modules').value.split(',').map(s => s.trim()).filter(Boolean);
+    const summary = `Клиент: ${$('customer').value}\nМодули: ${modules.join(', ') || '—'}\n`
+      + `Пользователей: ${$('maxUsers').value}\nСрок: ${$('validityDays').value} дн.\n\nВыпустить?`;
+    if (!confirm(summary)) return;
+    $('issueBtn').disabled = true;
+    try {
+      const r = await api('/licenses', { method: 'POST', body: JSON.stringify({
+        requestText: $('requestText').value,
+        customer: $('customer').value,
+        modules,
+        maxUsers: Number($('maxUsers').value),
+        validityDays: Number($('validityDays').value),
+      }) });
+      $('resultSummary').textContent = `Лицензия ${r.licenseId} для «${r.customer}», действует до ${day(r.notAfter)}, ключ ${r.keyId}.`;
+      $('licenseText').value = r.licenseText;
+      $('resultSection').hidden = false;
+      $('resultSection').scrollIntoView({ behavior: 'smooth' });
+      loadHistory();
+    } catch (e) {
+      show($('issueError'), e.message);
+    } finally {
+      $('issueBtn').disabled = false;
+    }
+  });
+
+  $('copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('licenseText').value);
+      $('copyBtn').textContent = 'Скопировано';
+    } catch {
+      $('licenseText').select();
+      $('copyBtn').textContent = 'Выделено, нажмите Ctrl+C';
+    }
+    setTimeout(() => { $('copyBtn').textContent = 'Скопировать'; }, 2000);
+  });
+
+  loadKey();
+  loadHistory();
+  loadKeys();
+</script>
+</body>
+</html>
